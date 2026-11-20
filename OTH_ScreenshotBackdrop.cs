@@ -85,261 +85,184 @@ namespace OTH_ScreenshotBackdrop
 
         private void RunDiagnostics()
         {
-            LoggerInstance.Msg("[Diagnostics] ===== UI / RENDERING SCAN START =====");
+            LoggerInstance.Msg("[Diagnostics] ===== BLUR SOURCE SCAN START =====");
             LoggerInstance.Msg("[Diagnostics] Backdrop active: " + _enabled +
                 " | Color: " + _colorHex +
                 " | Sorting order: " + BackdropSortingOrder);
 
             try
             {
-                ScanCameras();
+                ScanBlurTargets();
             }
             catch (Exception ex)
             {
-                LoggerInstance.Warning("[Diagnostics] Camera scan failed: " + ex);
+                LoggerInstance.Warning("[Diagnostics] Blur scan failed: " + ex.Message);
             }
 
-            try
-            {
-                ScanCanvases();
-            }
-            catch (Exception ex)
-            {
-                LoggerInstance.Warning("[Diagnostics] Canvas scan failed: " + ex);
-            }
-
-            try
-            {
-                ScanTranslucentGraphics();
-            }
-            catch (Exception ex)
-            {
-                LoggerInstance.Warning("[Diagnostics] TranslucentImage graphic scan failed: " + ex);
-            }
-
-            LoggerInstance.Msg("[Diagnostics] Note: Canvas scanning cannot enumerate arbitrary OnGUI callbacks, custom render passes or native/plugin rendering.");
-            LoggerInstance.Msg("[Diagnostics] ===== UI / RENDERING SCAN END =====");
+            LoggerInstance.Msg("[Diagnostics] ===== BLUR SOURCE SCAN END =====");
         }
 
-        private void ScanCameras()
-        {
-            Camera[] cameras = Resources.FindObjectsOfTypeAll<Camera>();
-            int logged = 0;
-
-            LoggerInstance.Msg("[Diagnostics] Cameras found: " + (cameras == null ? 0 : cameras.Length));
-
-            if (cameras == null)
-                return;
-
-            for (int i = 0; i < cameras.Length; i++)
-            {
-                Camera camera = cameras[i];
-
-                try
-                {
-                    if (camera == null || !camera.gameObject.scene.IsValid())
-                        continue;
-
-                    string target = camera.targetTexture == null ? "Screen" : camera.targetTexture.name;
-
-                    LoggerInstance.Msg(
-                        "[Diagnostics] Camera #" + (++logged) +
-                        " | Name=" + camera.name +
-                        " | Active=" + camera.gameObject.activeInHierarchy +
-                        " | Enabled=" + camera.enabled +
-                        " | Type=" + camera.cameraType +
-                        " | Depth=" + camera.depth +
-                        " | ClearFlags=" + camera.clearFlags +
-                        " | CullingMask=" + camera.cullingMask +
-                        " | Target=" + target +
-                        " | Display=" + camera.targetDisplay
-                    );
-                }
-                catch (Exception ex)
-                {
-                    LoggerInstance.Warning("[Diagnostics] Could not inspect camera #" + i + ": " + ex.Message);
-                }
-            }
-
-            LoggerInstance.Msg("[Diagnostics] Scene cameras logged: " + logged);
-        }
-
-        private void ScanCanvases()
+        private void ScanBlurTargets()
         {
             Canvas[] canvases = Resources.FindObjectsOfTypeAll<Canvas>();
+            System.Collections.Generic.HashSet<int> inspected = new System.Collections.Generic.HashSet<int>();
             int logged = 0;
 
-            LoggerInstance.Msg("[Diagnostics] Canvases found (including inactive/assets): " + (canvases == null ? 0 : canvases.Length));
-
             if (canvases == null)
-                return;
-
-            for (int i = 0; i < canvases.Length; i++)
             {
-                Canvas canvas = canvases[i];
-
-                try
-                {
-                    if (canvas == null || !canvas.gameObject.scene.IsValid())
-                        continue;
-
-                    if (canvas.gameObject == _canvasObject)
-                        continue;
-
-                    int graphicsCount = -1;
-                    int masksCount = -1;
-                    int rectMasksCount = -1;
-                    int groupsCount = -1;
-                    string shaderSummary = "unavailable";
-
-                    try
-                    {
-                        Graphic[] graphics = canvas.GetComponentsInChildren<Graphic>(true);
-                        Mask[] masks = canvas.GetComponentsInChildren<Mask>(true);
-                        RectMask2D[] rectMasks = canvas.GetComponentsInChildren<RectMask2D>(true);
-                        CanvasGroup[] groups = canvas.GetComponentsInChildren<CanvasGroup>(true);
-
-                        graphicsCount = graphics == null ? 0 : graphics.Length;
-                        masksCount = masks == null ? 0 : masks.Length;
-                        rectMasksCount = rectMasks == null ? 0 : rectMasks.Length;
-                        groupsCount = groups == null ? 0 : groups.Length;
-
-                        shaderSummary = BuildShaderSummary(graphics);
-                    }
-                    catch (Exception ex)
-                    {
-                        shaderSummary = "component scan failed: " + ex.Message;
-                    }
-
-                    string cameraName = canvas.worldCamera == null ? "None" : canvas.worldCamera.name;
-
-                    LoggerInstance.Msg(
-                        "[Diagnostics] Canvas #" + (++logged) +
-                        " | Name=" + canvas.name +
-                        " | Active=" + canvas.gameObject.activeInHierarchy +
-                        " | Enabled=" + canvas.enabled +
-                        " | RenderMode=" + canvas.renderMode +
-                        " | SortingLayer=" + canvas.sortingLayerName +
-                        " | SortingOrder=" + canvas.sortingOrder +
-                        " | OverrideSorting=" + canvas.overrideSorting +
-                        " | Root=" + canvas.isRootCanvas +
-                        " | WorldCamera=" + cameraName +
-                        " | TargetDisplay=" + canvas.targetDisplay +
-                        " | Graphics=" + graphicsCount +
-                        " | Mask=" + masksCount +
-                        " | RectMask2D=" + rectMasksCount +
-                        " | CanvasGroup=" + groupsCount +
-                        " | Shaders={" + shaderSummary + "}"
-                    );
-                }
-                catch (Exception ex)
-                {
-                    LoggerInstance.Warning("[Diagnostics] Could not inspect canvas #" + i + ": " + ex.Message);
-                }
-            }
-
-            LoggerInstance.Msg("[Diagnostics] Scene canvases logged: " + logged);
-        }
-
-        private void ScanTranslucentGraphics()
-        {
-            Canvas[] canvases = Resources.FindObjectsOfTypeAll<Canvas>();
-            int logged = 0;
-
-            LoggerInstance.Msg("[Diagnostics] Searching Canvas Graphics for UI/TranslucentImage materials.");
-
-            if (canvases == null)
+                LoggerInstance.Warning("[Diagnostics] No canvases were returned by Unity.");
                 return;
+            }
 
             for (int canvasIndex = 0; canvasIndex < canvases.Length; canvasIndex++)
             {
                 Canvas canvas = canvases[canvasIndex];
+                if (canvas == null || !canvas.gameObject.scene.IsValid() ||
+                    canvas.gameObject == _canvasObject)
+                    continue;
 
+                Graphic[] graphics;
                 try
                 {
-                    if (canvas == null || !canvas.gameObject.scene.IsValid() ||
-                        canvas.gameObject == _canvasObject)
+                    graphics = canvas.GetComponentsInChildren<Graphic>(true);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (graphics == null)
+                    continue;
+
+                for (int graphicIndex = 0; graphicIndex < graphics.Length; graphicIndex++)
+                {
+                    Graphic graphic = graphics[graphicIndex];
+                    if (graphic == null || !graphic.gameObject.activeInHierarchy ||
+                        !graphic.gameObject.name.Equals("BlurredBackground", StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    Graphic[] graphics = canvas.GetComponentsInChildren<Graphic>(true);
-                    if (graphics == null)
+                    int instanceId = graphic.gameObject.GetInstanceID();
+                    if (!inspected.Add(instanceId))
                         continue;
 
-                    for (int graphicIndex = 0; graphicIndex < graphics.Length; graphicIndex++)
+                    string hierarchy = GetHierarchyPath(graphic.transform, 8);
+                    if (hierarchy.IndexOf("Time", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        hierarchy.IndexOf("OTH_CustomRoadMeter", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        hierarchy.IndexOf("OTH_SpeedPlate", StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+
+                    if (logged >= 8)
+                        continue;
+
+                    logged++;
+                    Material material = graphic.materialForRendering;
+                    if (material == null || material.shader == null)
+                        material = graphic.material;
+
+                    LoggerInstance.Msg("[Diagnostics] Target #" + logged +
+                        " | Canvas=" + canvas.name +
+                        " | Path=" + hierarchy +
+                        " | Shader=" + (material == null || material.shader == null ? "None" : material.shader.name));
+
+                    LogBlurHierarchyComponents(graphic.transform, 3);
+
+                    if (material != null)
                     {
                         try
                         {
-                            Graphic graphic = graphics[graphicIndex];
-                            if (graphic == null)
-                                continue;
-
-                            Material material = graphic.materialForRendering;
-                            if (material == null || material.shader == null)
-                                material = graphic.material;
-
-                            if (material == null || material.shader == null ||
-                                material.shader.name.IndexOf("TranslucentImage", StringComparison.OrdinalIgnoreCase) < 0)
-                                continue;
-
-                            string hierarchy = graphic.gameObject.name;
-                            Transform parent = graphic.transform.parent;
-                            int depth = 0;
-
-                            while (parent != null && depth < 12)
+                            string[] properties = material.GetTexturePropertyNames();
+                            System.Text.StringBuilder textures = new System.Text.StringBuilder();
+                            if (properties != null)
                             {
-                                hierarchy = parent.name + "/" + hierarchy;
-                                parent = parent.parent;
-                                depth++;
-                            }
-
-                            LoggerInstance.Msg(
-                                "[Diagnostics] Translucent Graphic #" + (++logged) +
-                                " | Canvas=" + canvas.name +
-                                " | Object=" + hierarchy +
-                                " | GraphicType=" + graphic.GetType().FullName +
-                                " | Active=" + graphic.gameObject.activeInHierarchy +
-                                " | Enabled=" + graphic.enabled +
-                                " | Material=" + material.name +
-                                " | Shader=" + material.shader.name +
-                                " | GraphicColor=" + graphic.color
-                            );
-
-                            try
-                            {
-                                string[] textureProperties = material.GetTexturePropertyNames();
-                                if (textureProperties != null)
+                                for (int i = 0; i < properties.Length; i++)
                                 {
-                                    for (int textureIndex = 0; textureIndex < textureProperties.Length; textureIndex++)
-                                    {
-                                        string propertyName = textureProperties[textureIndex];
-                                        Texture texture = material.GetTexture(propertyName);
-                                        LoggerInstance.Msg(
-                                            "[Diagnostics]   Texture " + propertyName + " = " +
-                                            (texture == null ? "null" : texture.GetType().Name + ":" + texture.name)
-                                        );
-                                    }
+                                    if (i > 0)
+                                        textures.Append(", ");
+
+                                    Texture texture = material.GetTexture(properties[i]);
+                                    textures.Append(properties[i]);
+                                    textures.Append("=");
+                                    textures.Append(texture == null ? "null" : texture.GetType().Name + ":" + texture.name);
                                 }
                             }
-                            catch (Exception ex)
-                            {
-                                LoggerInstance.Warning("[Diagnostics]   Could not inspect material textures: " + ex.Message);
-                            }
+
+                            LoggerInstance.Msg("[Diagnostics]   Material=" + material.name +
+                                " | TextureProperties={" + (textures.Length == 0 ? "none" : textures.ToString()) + "}");
                         }
                         catch (Exception ex)
                         {
-                            LoggerInstance.Warning("[Diagnostics] Could not inspect Graphic " + graphicIndex +
-                                " on Canvas " + canvas.name + ": " + ex.Message);
+                            LoggerInstance.Msg("[Diagnostics]   Material texture inspection unavailable: " + ex.Message);
                         }
                     }
                 }
-                catch (Exception ex)
-                {
-                    LoggerInstance.Warning("[Diagnostics] Could not scan Graphics on Canvas " + canvas.name +
-                        ": " + ex.Message);
-                }
             }
 
-            LoggerInstance.Msg("[Diagnostics] Translucent Graphics logged: " + logged);
+            LoggerInstance.Msg("[Diagnostics] Relevant active blur targets logged: " + logged +
+                " (maximum 8; duplicate nested-canvas entries skipped).");
+        }
+
+        private void LogBlurHierarchyComponents(Transform target, int parentLevels)
+        {
+            Transform current = target;
+            int level = 0;
+
+            while (current != null && level <= parentLevels)
+            {
+                try
+                {
+                    Component[] components = current.GetComponents<Component>();
+                    System.Text.StringBuilder names = new System.Text.StringBuilder();
+
+                    if (components != null)
+                    {
+                        for (int i = 0; i < components.Length; i++)
+                        {
+                            Component component = components[i];
+                            if (component == null)
+                                continue;
+
+                            if (names.Length > 0)
+                                names.Append(", ");
+
+                            Type type = component.GetType();
+                            names.Append(type.FullName ?? type.Name);
+                        }
+                    }
+
+                    LoggerInstance.Msg("[Diagnostics]   Hierarchy +" + level +
+                        " [" + current.name + "] Components={" +
+                        (names.Length == 0 ? "none" : names.ToString()) + "}");
+                }
+                catch (Exception ex)
+                {
+                    LoggerInstance.Msg("[Diagnostics]   Hierarchy +" + level +
+                        " [" + current.name + "] component scan unavailable: " + ex.Message);
+                }
+
+                current = current.parent;
+                level++;
+            }
+        }
+
+        private string GetHierarchyPath(Transform transform, int maxDepth)
+        {
+            if (transform == null)
+                return "(unknown)";
+
+            System.Collections.Generic.List<string> names =
+                new System.Collections.Generic.List<string>();
+
+            Transform current = transform;
+            int depth = 0;
+
+            while (current != null && depth < maxDepth)
+            {
+                names.Insert(0, current.name);
+                current = current.parent;
+                depth++;
+            }
+
+            return string.Join("/", names.ToArray());
         }
 
         private string BuildShaderSummary(Graphic[] graphics)
