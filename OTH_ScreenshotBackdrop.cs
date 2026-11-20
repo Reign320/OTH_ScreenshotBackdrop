@@ -103,6 +103,7 @@ namespace OTH_ScreenshotBackdrop
             try
             {
                 ScanTranslucentImageSources();
+                ScanTranslucentImageSourceSetters();
                 ScanRelatedRuntimeTypes();
             }
             catch (Exception ex)
@@ -329,6 +330,73 @@ namespace OTH_ScreenshotBackdrop
 
             LoggerInstance.Msg("[Diagnostics][LeTai] Target-based scan complete. Targets=" +
                 targetCount + " | Unique sources=" + sourceCount + ".");
+        }
+
+        private void ScanTranslucentImageSourceSetters()
+        {
+            const string setterTypeToken = "TranslucentImageSourceSetter";
+            Canvas[] canvases = Resources.FindObjectsOfTypeAll<Canvas>();
+            System.Collections.Generic.HashSet<int> inspected =
+                new System.Collections.Generic.HashSet<int>();
+            int found = 0;
+
+            if (canvases == null)
+            {
+                LoggerInstance.Warning("[Diagnostics][Setter] No canvases available.");
+                return;
+            }
+
+            for (int canvasIndex = 0; canvasIndex < canvases.Length; canvasIndex++)
+            {
+                Canvas canvas = canvases[canvasIndex];
+                if (canvas == null || !canvas.gameObject.scene.IsValid() ||
+                    canvas.gameObject == _canvasObject)
+                    continue;
+
+                Component[] components;
+                try
+                {
+                    components = canvas.GetComponentsInChildren<Component>(true);
+                }
+                catch (Exception ex)
+                {
+                    LoggerInstance.Warning("[Diagnostics][Setter] Component scan failed on Canvas " +
+                        canvas.name + ": " + ex.GetType().Name + ": " + ex.Message);
+                    continue;
+                }
+
+                if (components == null)
+                    continue;
+
+                for (int componentIndex = 0; componentIndex < components.Length; componentIndex++)
+                {
+                    Component component = components[componentIndex];
+                    if (component == null)
+                        continue;
+
+                    Type componentType = component.GetType();
+                    string fullName = componentType.FullName ?? componentType.Name;
+                    if (fullName.IndexOf(setterTypeToken, StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+
+                    int instanceId = component.GetInstanceID();
+                    if (!inspected.Add(instanceId))
+                        continue;
+
+                    found++;
+                    LoggerInstance.Msg("[Diagnostics][Setter] ===== SETTER #" + found + " =====");
+                    LoggerInstance.Msg("[Diagnostics][Setter] Type=" + fullName +
+                        " | Assembly=" + componentType.Assembly.GetName().Name +
+                        " | Object=" + GetHierarchyPath(component.transform, 12) +
+                        " | Enabled=" + (((Behaviour)component).enabled) +
+                        " | Active=" + component.gameObject.activeInHierarchy +
+                        " | InstanceID=" + instanceId);
+
+                    LogComponentFields(component, 8);
+                }
+            }
+
+            LoggerInstance.Msg("[Diagnostics][Setter] Scan complete. Setters found=" + found + ".");
         }
 
         private Type FindLoadedType(params string[] candidateNames)
