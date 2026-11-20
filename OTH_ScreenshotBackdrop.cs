@@ -196,21 +196,128 @@ namespace OTH_ScreenshotBackdrop
 
         private void ScanTranslucentImageSources()
         {
-            const string expectedTypeSuffix = ".TranslucentImageSource";
-            Type sourceType = null;
-            Assembly sourceAssembly = null;
-            string resolvedTypeName = null;
-            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            const string sourceTypeName = "Il2CppLeTai.Asset.TranslucentImage.TranslucentImageSource";
+            const string imageTypeName = "Il2CppLeTai.Asset.TranslucentImage.TranslucentImage";
+            Type sourceType = FindLoadedType(sourceTypeName, "LeTai.Asset.TranslucentImage.TranslucentImageSource");
+            Type imageType = FindLoadedType(imageTypeName, "LeTai.Asset.TranslucentImage.TranslucentImage");
 
-            // IL2CPP-generated wrappers expose LeTai types with an Il2Cpp namespace prefix.
-            // Try the runtime name first, then the original managed name for compatibility.
-            string[] candidateNames =
+            if (sourceType == null)
             {
-                "Il2CppLeTai.Asset.TranslucentImage.TranslucentImageSource",
-                "LeTai.Asset.TranslucentImage.TranslucentImageSource"
-            };
+                LoggerInstance.Warning("[Diagnostics][LeTai] TranslucentImageSource type not found.");
+                return;
+            }
 
-            for (int assemblyIndex = 0; assemblyIndex < assemblies.Length && sourceType == null; assemblyIndex++)
+            LoggerInstance.Msg("[Diagnostics][LeTai] Source type resolved: " + sourceType.FullName);
+            if (imageType == null)
+            {
+                LoggerInstance.Warning("[Diagnostics][LeTai] TranslucentImage component type not found. " +
+                    "Cannot follow source references from the known HUD blur targets.");
+                return;
+            }
+
+            LoggerInstance.Msg("[Diagnostics][LeTai] Image type resolved: " + imageType.FullName);
+
+            Canvas[] canvases = Resources.FindObjectsOfTypeAll<Canvas>();
+            System.Collections.Generic.HashSet<int> inspectedSources =
+                new System.Collections.Generic.HashSet<int>();
+            int targetCount = 0;
+            int sourceCount = 0;
+
+            if (canvases == null)
+            {
+                LoggerInstance.Warning("[Diagnostics][LeTai] No canvases available for target-based source scan.");
+                return;
+            }
+
+            for (int canvasIndex = 0; canvasIndex < canvases.Length; canvasIndex++)
+            {
+                Canvas canvas = canvases[canvasIndex];
+                if (canvas == null || !canvas.gameObject.scene.IsValid() ||
+                    canvas.gameObject == _canvasObject)
+                    continue;
+
+                Graphic[] graphics;
+                try
+                {
+                    graphics = canvas.GetComponentsInChildren<Graphic>(true);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (graphics == null)
+                    continue;
+
+                for (int graphicIndex = 0; graphicIndex < graphics.Length; graphicIndex++)
+                {
+                    Graphic graphic = graphics[graphicIndex];
+                    if (graphic == null ||
+                        !graphic.gameObject.name.Equals("BlurredBackground", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string hierarchy = GetHierarchyPath(graphic.transform, 8);
+                    if (hierarchy.IndexOf("Time", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        hierarchy.IndexOf("OTH_CustomRoadMeter", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        hierarchy.IndexOf("OTH_SpeedPlate", StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+
+                    targetCount++;
+                    Component translucentImage = null;
+                    try
+                    {
+                        translucentImage = graphic.GetComponent(imageType);
+                    }
+                    catch (Exception ex)
+                    {
+                        LoggerInstance.Warning("[Diagnostics][LeTai] GetComponent(TranslucentImage) failed for " +
+                            hierarchy + ": " + ex.GetType().Name + ": " + ex.Message);
+                    }
+
+                    if (translucentImage == null)
+                    {
+                        LoggerInstance.Warning("[Diagnostics][LeTai] No TranslucentImage component found on " + hierarchy);
+                        continue;
+                    }
+
+                    object sourceValue = ReadDiagnosticMember(
+                        translucentImage, imageType, "source", "_source");
+
+                    Component sourceComponent = sourceValue as Component;
+                    if (sourceComponent == null)
+                    {
+                        LoggerInstance.Warning("[Diagnostics][LeTai] source reference is not a Component on " +
+                            hierarchy + " | Value=" + FormatDiagnosticValue(sourceValue));
+                        continue;
+                    }
+
+                    int sourceId = sourceComponent.GetInstanceID();
+                    if (!inspectedSources.Add(sourceId))
+                    {
+                        LoggerInstance.Msg("[Diagnostics][LeTai] Shared source reused by target: " + hierarchy +
+                            " | SourceID=" + sourceId);
+                        continue;
+                    }
+
+                    sourceCount++;
+                    LoggerInstance.Msg("[Diagnostics][LeTai] Target=" + hierarchy +
+                        " | TranslucentImage=" + GetHierarchyPath(translucentImage.transform, 8) +
+                        " | SourceID=" + sourceId);
+                    LogTranslucentImageSource(sourceComponent, sourceType, sourceCount);
+                }
+            }
+
+            LoggerInstance.Msg("[Diagnostics][LeTai] Target-based scan complete. Targets=" +
+                targetCount + " | Unique sources=" + sourceCount + ".");
+        }
+
+        private Type FindLoadedType(params string[] candidateNames)
+        {
+            if (candidateNames == null || candidateNames.Length == 0)
+                return null;
+
+            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            for (int assemblyIndex = 0; assemblyIndex < assemblies.Length; assemblyIndex++)
             {
                 Assembly assembly = assemblies[assemblyIndex];
                 if (assembly == null)
@@ -221,128 +328,17 @@ namespace OTH_ScreenshotBackdrop
                     try
                     {
                         Type candidate = assembly.GetType(candidateNames[nameIndex], false);
-                        if (candidate == null)
-                            continue;
-
-                        sourceType = candidate;
-                        sourceAssembly = assembly;
-                        resolvedTypeName = candidateNames[nameIndex];
-                        break;
+                        if (candidate != null)
+                            return candidate;
                     }
                     catch
                     {
-                        // Some IL2CPP-generated assemblies may reject direct reflection queries.
+                        // Continue with the next candidate name or assembly.
                     }
                 }
             }
 
-            // Fallback: locate the type by its distinctive full-name suffix. This handles
-            // namespace variations introduced by different Il2CppInterop versions.
-            if (sourceType == null)
-            {
-                for (int assemblyIndex = 0; assemblyIndex < assemblies.Length && sourceType == null; assemblyIndex++)
-                {
-                    Assembly assembly = assemblies[assemblyIndex];
-                    if (assembly == null)
-                        continue;
-
-                    Type[] types;
-                    try
-                    {
-                        types = assembly.GetTypes();
-                    }
-                    catch (ReflectionTypeLoadException ex)
-                    {
-                        types = ex.Types;
-                    }
-                    catch
-                    {
-                        continue;
-                    }
-
-                    if (types == null)
-                        continue;
-
-                    for (int typeIndex = 0; typeIndex < types.Length; typeIndex++)
-                    {
-                        Type candidate = types[typeIndex];
-                        if (candidate == null)
-                            continue;
-
-                        string fullName = candidate.FullName ?? candidate.Name;
-                        if (!fullName.EndsWith(expectedTypeSuffix, StringComparison.OrdinalIgnoreCase))
-                            continue;
-
-                        sourceType = candidate;
-                        sourceAssembly = assembly;
-                        resolvedTypeName = fullName;
-                        break;
-                    }
-                }
-            }
-
-            if (sourceType == null)
-            {
-                LoggerInstance.Warning("[Diagnostics][LeTai] TranslucentImageSource type not found. " +
-                    "Checked Il2CppLeTai and LeTai names plus loaded-type suffix fallback.");
-                return;
-            }
-
-            LoggerInstance.Msg("[Diagnostics][LeTai] Exact source type resolved: " +
-                sourceType.FullName + " | Assembly=" + sourceAssembly.GetName().Name +
-                " | MatchedAs=" + resolvedTypeName +
-                " | RuntimeType=" + (sourceType.GetType().FullName ?? sourceType.GetType().Name));
-
-            object discovered = null;
-            try
-            {
-                MethodInfo findAll = typeof(Resources).GetMethod(
-                    "FindObjectsOfTypeAll",
-                    BindingFlags.Public | BindingFlags.Static,
-                    null,
-                    new Type[] { typeof(Type) },
-                    null
-                );
-
-                if (findAll == null)
-                    throw new MissingMethodException("Resources.FindObjectsOfTypeAll(Type) is unavailable.");
-
-                discovered = findAll.Invoke(null, new object[] { sourceType });
-            }
-            catch (Exception ex)
-            {
-                LoggerInstance.Warning("[Diagnostics][LeTai] Exact-type object search failed: " +
-                    ex.GetType().Name + ": " + ex.Message);
-            }
-
-            System.Collections.IEnumerable items = discovered as System.Collections.IEnumerable;
-            int found = 0;
-
-            if (items != null)
-            {
-                foreach (object item in items)
-                {
-                    Component component = item as Component;
-                    if (component == null)
-                        continue;
-
-                    found++;
-                    if (found > 8)
-                        continue;
-
-                    LogTranslucentImageSource(component, sourceType, found);
-                }
-            }
-
-            LoggerInstance.Msg("[Diagnostics][LeTai] Exact TranslucentImageSource instances found: " +
-                found + " (maximum 8 inspected).");
-
-            if (found == 0)
-            {
-                LoggerInstance.Warning("[Diagnostics][LeTai] Type resolved, but no instances were returned " +
-                    "by Resources.FindObjectsOfTypeAll(Type). The next diagnostic step is to inspect " +
-                    "TranslucentImage components and their source references directly.");
-            }
+            return null;
         }
 
         private void LogTranslucentImageSource(Component source, Type sourceType, int index)
