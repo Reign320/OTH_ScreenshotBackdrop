@@ -196,44 +196,101 @@ namespace OTH_ScreenshotBackdrop
 
         private void ScanTranslucentImageSources()
         {
-            const string sourceTypeName = "LeTai.Asset.TranslucentImage.TranslucentImageSource";
+            const string expectedTypeSuffix = ".TranslucentImageSource";
             Type sourceType = null;
             Assembly sourceAssembly = null;
+            string resolvedTypeName = null;
             Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
-            for (int i = 0; i < assemblies.Length; i++)
+            // IL2CPP-generated wrappers expose LeTai types with an Il2Cpp namespace prefix.
+            // Try the runtime name first, then the original managed name for compatibility.
+            string[] candidateNames =
             {
-                Assembly assembly = assemblies[i];
+                "Il2CppLeTai.Asset.TranslucentImage.TranslucentImageSource",
+                "LeTai.Asset.TranslucentImage.TranslucentImageSource"
+            };
+
+            for (int assemblyIndex = 0; assemblyIndex < assemblies.Length && sourceType == null; assemblyIndex++)
+            {
+                Assembly assembly = assemblies[assemblyIndex];
                 if (assembly == null)
                     continue;
 
-                Type candidate = null;
-                try
+                for (int nameIndex = 0; nameIndex < candidateNames.Length; nameIndex++)
                 {
-                    candidate = assembly.GetType(sourceTypeName, false);
+                    try
+                    {
+                        Type candidate = assembly.GetType(candidateNames[nameIndex], false);
+                        if (candidate == null)
+                            continue;
+
+                        sourceType = candidate;
+                        sourceAssembly = assembly;
+                        resolvedTypeName = candidateNames[nameIndex];
+                        break;
+                    }
+                    catch
+                    {
+                        // Some IL2CPP-generated assemblies may reject direct reflection queries.
+                    }
                 }
-                catch
+            }
+
+            // Fallback: locate the type by its distinctive full-name suffix. This handles
+            // namespace variations introduced by different Il2CppInterop versions.
+            if (sourceType == null)
+            {
+                for (int assemblyIndex = 0; assemblyIndex < assemblies.Length && sourceType == null; assemblyIndex++)
                 {
-                    // Some IL2CPP-generated assemblies may reject reflection queries.
+                    Assembly assembly = assemblies[assemblyIndex];
+                    if (assembly == null)
+                        continue;
+
+                    Type[] types;
+                    try
+                    {
+                        types = assembly.GetTypes();
+                    }
+                    catch (ReflectionTypeLoadException ex)
+                    {
+                        types = ex.Types;
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    if (types == null)
+                        continue;
+
+                    for (int typeIndex = 0; typeIndex < types.Length; typeIndex++)
+                    {
+                        Type candidate = types[typeIndex];
+                        if (candidate == null)
+                            continue;
+
+                        string fullName = candidate.FullName ?? candidate.Name;
+                        if (!fullName.EndsWith(expectedTypeSuffix, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        sourceType = candidate;
+                        sourceAssembly = assembly;
+                        resolvedTypeName = fullName;
+                        break;
+                    }
                 }
-
-                if (candidate == null)
-                    continue;
-
-                sourceType = candidate;
-                sourceAssembly = assembly;
-                break;
             }
 
             if (sourceType == null)
             {
-                LoggerInstance.Warning("[Diagnostics][LeTai] Exact type not found: " + sourceTypeName +
-                    ". Check that LeTai.Asset.TranslucentImage.dll is loaded.");
+                LoggerInstance.Warning("[Diagnostics][LeTai] TranslucentImageSource type not found. " +
+                    "Checked Il2CppLeTai and LeTai names plus loaded-type suffix fallback.");
                 return;
             }
 
             LoggerInstance.Msg("[Diagnostics][LeTai] Exact source type resolved: " +
                 sourceType.FullName + " | Assembly=" + sourceAssembly.GetName().Name +
+                " | MatchedAs=" + resolvedTypeName +
                 " | RuntimeType=" + (sourceType.GetType().FullName ?? sourceType.GetType().Name));
 
             object discovered = null;
@@ -282,8 +339,9 @@ namespace OTH_ScreenshotBackdrop
 
             if (found == 0)
             {
-                LoggerInstance.Warning("[Diagnostics][LeTai] No instances returned by exact-type lookup. " +
-                    "This is distinct from the earlier MonoBehaviour wrapper scan.");
+                LoggerInstance.Warning("[Diagnostics][LeTai] Type resolved, but no instances were returned " +
+                    "by Resources.FindObjectsOfTypeAll(Type). The next diagnostic step is to inspect " +
+                    "TranslucentImage components and their source references directly.");
             }
         }
 
