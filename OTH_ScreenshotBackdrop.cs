@@ -196,42 +196,195 @@ namespace OTH_ScreenshotBackdrop
 
         private void ScanTranslucentImageSources()
         {
-            MonoBehaviour[] behaviours = Resources.FindObjectsOfTypeAll<MonoBehaviour>();
-            int found = 0;
+            const string sourceTypeName = "LeTai.Asset.TranslucentImage.TranslucentImageSource";
+            Type sourceType = null;
+            Assembly sourceAssembly = null;
+            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
-            if (behaviours == null)
+            for (int i = 0; i < assemblies.Length; i++)
             {
-                LoggerInstance.Msg("[Diagnostics] Translucent Image source components: none returned.");
+                Assembly assembly = assemblies[i];
+                if (assembly == null)
+                    continue;
+
+                Type candidate = null;
+                try
+                {
+                    candidate = assembly.GetType(sourceTypeName, false);
+                }
+                catch
+                {
+                    // Some IL2CPP-generated assemblies may reject reflection queries.
+                }
+
+                if (candidate == null)
+                    continue;
+
+                sourceType = candidate;
+                sourceAssembly = assembly;
+                break;
+            }
+
+            if (sourceType == null)
+            {
+                LoggerInstance.Warning("[Diagnostics][LeTai] Exact type not found: " + sourceTypeName +
+                    ". Check that LeTai.Asset.TranslucentImage.dll is loaded.");
                 return;
             }
 
-            for (int i = 0; i < behaviours.Length; i++)
+            LoggerInstance.Msg("[Diagnostics][LeTai] Exact source type resolved: " +
+                sourceType.FullName + " | Assembly=" + sourceAssembly.GetName().Name +
+                " | RuntimeType=" + (sourceType.GetType().FullName ?? sourceType.GetType().Name));
+
+            object discovered = null;
+            try
             {
-                MonoBehaviour behaviour = behaviours[i];
-                if (behaviour == null || !behaviour.gameObject.scene.IsValid())
-                    continue;
+                MethodInfo findAll = typeof(Resources).GetMethod(
+                    "FindObjectsOfTypeAll",
+                    BindingFlags.Public | BindingFlags.Static,
+                    null,
+                    new Type[] { typeof(Type) },
+                    null
+                );
 
-                Type type = behaviour.GetType();
-                string typeName = type.FullName ?? type.Name;
-                if (typeName.IndexOf("TranslucentImageSource", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    typeName.IndexOf("TranslucentImageBlurSource", StringComparison.OrdinalIgnoreCase) < 0)
-                    continue;
+                if (findAll == null)
+                    throw new MissingMethodException("Resources.FindObjectsOfTypeAll(Type) is unavailable.");
 
-                found++;
-                if (found > 6)
-                    continue;
-
-                LoggerInstance.Msg("[Diagnostics] BlurSource #" + found +
-                    " | Type=" + typeName +
-                    " | Object=" + GetHierarchyPath(behaviour.transform, 8) +
-                    " | Enabled=" + behaviour.enabled +
-                    " | Active=" + behaviour.gameObject.activeInHierarchy);
-
-                LogComponentFields(behaviour, 2);
+                discovered = findAll.Invoke(null, new object[] { sourceType });
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Warning("[Diagnostics][LeTai] Exact-type object search failed: " +
+                    ex.GetType().Name + ": " + ex.Message);
             }
 
-            LoggerInstance.Msg("[Diagnostics] Translucent Image source components found: " + found +
-                " (maximum 6 inspected).");
+            System.Collections.IEnumerable items = discovered as System.Collections.IEnumerable;
+            int found = 0;
+
+            if (items != null)
+            {
+                foreach (object item in items)
+                {
+                    Component component = item as Component;
+                    if (component == null)
+                        continue;
+
+                    found++;
+                    if (found > 8)
+                        continue;
+
+                    LogTranslucentImageSource(component, sourceType, found);
+                }
+            }
+
+            LoggerInstance.Msg("[Diagnostics][LeTai] Exact TranslucentImageSource instances found: " +
+                found + " (maximum 8 inspected).");
+
+            if (found == 0)
+            {
+                LoggerInstance.Warning("[Diagnostics][LeTai] No instances returned by exact-type lookup. " +
+                    "This is distinct from the earlier MonoBehaviour wrapper scan.");
+            }
+        }
+
+        private void LogTranslucentImageSource(Component source, Type sourceType, int index)
+        {
+            LoggerInstance.Msg("[Diagnostics][LeTai] ===== SOURCE #" + index + " =====");
+            LoggerInstance.Msg("[Diagnostics][LeTai] Object=" +
+                GetHierarchyPath(source.transform, 10) +
+                " | Enabled=" + source.enabled +
+                " | Active=" + source.gameObject.activeInHierarchy +
+                " | InstanceID=" + source.GetInstanceID());
+
+            object cameraValue = ReadDiagnosticMember(source, sourceType, "Cam", "camera");
+            Camera sourceCamera = cameraValue as Camera;
+            if (sourceCamera != null)
+            {
+                LoggerInstance.Msg("[Diagnostics][LeTai] Camera=" +
+                    GetHierarchyPath(sourceCamera.transform, 10) +
+                    " | Enabled=" + sourceCamera.enabled +
+                    " | Active=" + sourceCamera.gameObject.activeInHierarchy +
+                    " | Depth=" + sourceCamera.depth.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) +
+                    " | Type=" + sourceCamera.cameraType +
+                    " | ClearFlags=" + sourceCamera.clearFlags +
+                    " | CullingMask=" + sourceCamera.cullingMask +
+                    " | TargetTexture=" + (sourceCamera.targetTexture == null
+                        ? "null"
+                        : sourceCamera.targetTexture.name + " (" +
+                            sourceCamera.targetTexture.width + "x" + sourceCamera.targetTexture.height + ")"));
+            }
+            else
+            {
+                LoggerInstance.Msg("[Diagnostics][LeTai] Camera member=" +
+                    FormatDiagnosticValue(cameraValue));
+            }
+
+            LogLeTaiMember(source, sourceType, "BlurredScreen", "blurredScreen");
+            LogLeTaiMember(source, sourceType, "isForOverlayCanvas");
+            LogLeTaiMember(source, sourceType, "needRegisterCanvasPreRenderCallback");
+            LogLeTaiMember(source, sourceType, "Downsample", "downsample");
+            LogLeTaiMember(source, sourceType, "BlurRegion", "blurRegion");
+            LogLeTaiMember(source, sourceType, "BlurRegionNormalizedScreenSpace");
+            LogLeTaiMember(source, sourceType, "ActiveRegion");
+            LogLeTaiMember(source, sourceType, "CamRectOverride");
+            LogLeTaiMember(source, sourceType, "MaxUpdateRate", "maxUpdateRate");
+            LogLeTaiMember(source, sourceType, "CullPadding", "cullPadding");
+            LogLeTaiMember(source, sourceType, "SkipCulling", "skipCulling");
+            LogLeTaiMember(source, sourceType, "Preview", "preview");
+
+            object blurredValue = ReadDiagnosticMember(source, sourceType, "BlurredScreen", "blurredScreen");
+            RenderTexture blurredTexture = blurredValue as RenderTexture;
+            if (blurredTexture != null)
+            {
+                LoggerInstance.Msg("[Diagnostics][LeTai] BlurredScreen details: " +
+                    blurredTexture.width + "x" + blurredTexture.height +
+                    " | Format=" + blurredTexture.format +
+                    " | Dimension=" + blurredTexture.dimension +
+                    " | Depth=" + blurredTexture.depth +
+                    " | IsCreated=" + blurredTexture.IsCreated() +
+                    " | AntiAliasing=" + blurredTexture.antiAliasing);
+            }
+
+            LoggerInstance.Msg("[Diagnostics][LeTai] ===== END SOURCE #" + index + " =====");
+        }
+
+        private void LogLeTaiMember(Component source, Type sourceType, params string[] names)
+        {
+            object value = ReadDiagnosticMember(source, sourceType, names);
+            string memberName = names == null || names.Length == 0 ? "(unknown)" : names[0];
+            LoggerInstance.Msg("[Diagnostics][LeTai] " + memberName + "=" +
+                FormatDiagnosticValue(value));
+        }
+
+        private object ReadDiagnosticMember(object instance, Type declaringType, params string[] names)
+        {
+            if (instance == null || declaringType == null || names == null)
+                return null;
+
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public |
+                BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+
+            for (int i = 0; i < names.Length; i++)
+            {
+                string name = names[i];
+                try
+                {
+                    PropertyInfo property = declaringType.GetProperty(name, flags);
+                    if (property != null && property.GetIndexParameters().Length == 0)
+                        return property.GetValue(instance, null);
+
+                    FieldInfo field = declaringType.GetField(name, flags);
+                    if (field != null)
+                        return field.GetValue(instance);
+                }
+                catch (Exception ex)
+                {
+                    LoggerInstance.Msg("[Diagnostics][LeTai] Could not read " + name +
+                        ": " + ex.GetType().Name + ": " + ex.Message);
+                }
+            }
+
+            return null;
         }
 
         private void ScanRelatedRuntimeTypes()
