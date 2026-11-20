@@ -43,7 +43,7 @@ namespace OTH_ScreenshotBackdrop
                     (_toggleKey == KeyCode.None ? "Disabled" : _toggleKey.ToString()) +
                     " | Color: " + _colorHex
                 );
-                LoggerInstance.Msg("Diagnostics key: " + DiagnosticKey + ". Press it in-game to scan cameras and UI canvases.");
+                LoggerInstance.Msg("Diagnostics key: " + DiagnosticKey + ". Press it in-game to inspect the HUD blur materials.");
             }
             catch (Exception ex)
             {
@@ -98,15 +98,6 @@ namespace OTH_ScreenshotBackdrop
             catch (Exception ex)
             {
                 LoggerInstance.Warning("[Diagnostics] Blur scan failed: " + ex.Message);
-            }
-
-            try
-            {
-                ScanLoadedBlurTypes();
-            }
-            catch (Exception ex)
-            {
-                LoggerInstance.Warning("[Diagnostics] Loaded-type scan failed: " + ex.Message);
             }
 
             LoggerInstance.Msg("[Diagnostics] ===== BLUR SOURCE SCAN END =====");
@@ -165,9 +156,9 @@ namespace OTH_ScreenshotBackdrop
                         continue;
 
                     logged++;
-                    Material material = graphic.materialForRendering;
-                    if (material == null || material.shader == null)
-                        material = graphic.material;
+                    Material sourceMaterial = graphic.material;
+                    Material renderMaterial = graphic.materialForRendering;
+                    Material material = renderMaterial != null ? renderMaterial : sourceMaterial;
 
                     LoggerInstance.Msg("[Diagnostics] Target #" + logged +
                         " | Canvas=" + canvas.name +
@@ -179,39 +170,76 @@ namespace OTH_ScreenshotBackdrop
 
                     LogBlurHierarchyComponents(graphic.transform, 3);
 
-                    if (material != null)
-                    {
-                        try
-                        {
-                            string[] properties = material.GetTexturePropertyNames();
-                            System.Text.StringBuilder textures = new System.Text.StringBuilder();
-                            if (properties != null)
-                            {
-                                for (int i = 0; i < properties.Length; i++)
-                                {
-                                    if (i > 0)
-                                        textures.Append(", ");
+                    if (sourceMaterial != null)
+                        LogMaterialState("SourceMaterial", sourceMaterial);
 
-                                    Texture texture = material.GetTexture(properties[i]);
-                                    textures.Append(properties[i]);
-                                    textures.Append("=");
-                                    textures.Append(texture == null ? "null" : texture.GetType().Name + ":" + texture.name);
-                                }
-                            }
-
-                            LoggerInstance.Msg("[Diagnostics]   Material=" + material.name +
-                                " | TextureProperties={" + (textures.Length == 0 ? "none" : textures.ToString()) + "}");
-                        }
-                        catch (Exception ex)
-                        {
-                            LoggerInstance.Msg("[Diagnostics]   Material texture inspection unavailable: " + ex.Message);
-                        }
-                    }
+                    if (renderMaterial != null && renderMaterial != sourceMaterial)
+                        LogMaterialState("RenderMaterial", renderMaterial);
                 }
             }
 
             LoggerInstance.Msg("[Diagnostics] Relevant active blur targets logged: " + logged +
                 " (maximum 8; duplicate nested-canvas entries skipped).");
+        }
+
+
+        private void LogMaterialState(string label, Material material)
+        {
+            try
+            {
+                string[] floatProperties =
+                {
+                    "_BACKGROUND_MODE",
+                    "_REFRACTION_MODE",
+                    "_RefractiveIndex",
+                    "_ChromaticDispersion",
+                    "_USE_EDGE_GLINT",
+                    "_EdgeGlint1Strength",
+                    "_EdgeGlint2Strength"
+                };
+
+                System.Text.StringBuilder values = new System.Text.StringBuilder();
+                for (int i = 0; i < floatProperties.Length; i++)
+                {
+                    string property = floatProperties[i];
+                    if (!material.HasProperty(property))
+                        continue;
+
+                    if (values.Length > 0)
+                        values.Append(", ");
+
+                    values.Append(property);
+                    values.Append("=");
+                    values.Append(material.GetFloat(property).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture));
+                }
+
+                string[] textureProperties = material.GetTexturePropertyNames();
+                System.Text.StringBuilder textures = new System.Text.StringBuilder();
+                if (textureProperties != null)
+                {
+                    for (int i = 0; i < textureProperties.Length; i++)
+                    {
+                        if (textures.Length > 0)
+                            textures.Append(", ");
+
+                        Texture texture = material.GetTexture(textureProperties[i]);
+                        textures.Append(textureProperties[i]);
+                        textures.Append("=");
+                        textures.Append(texture == null ? "null" : texture.GetType().Name + ":" + texture.name);
+                    }
+                }
+
+                LoggerInstance.Msg("[Diagnostics]   " + label +
+                    "=" + material.name +
+                    " | Queue=" + material.renderQueue +
+                    " | FloatProperties={" + (values.Length == 0 ? "none" : values.ToString()) + "}" +
+                    " | TextureProperties={" + (textures.Length == 0 ? "none" : textures.ToString()) + "}");
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Msg("[Diagnostics]   " + label +
+                    " inspection unavailable: " + ex.GetType().Name + ": " + ex.Message);
+            }
         }
 
         private void LogShaderProperties(Shader shader)
@@ -269,73 +297,6 @@ namespace OTH_ScreenshotBackdrop
                 LoggerInstance.Msg("[Diagnostics] Shader property enumeration unavailable: " +
                     ex.GetType().Name + ": " + ex.Message);
             }
-        }
-
-        private void ScanLoadedBlurTypes()
-        {
-            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
-            System.Collections.Generic.List<string> matches =
-                new System.Collections.Generic.List<string>();
-
-            string[] keywords = { "blur", "translucentimage", "capture", "screenspace" };
-
-            for (int assemblyIndex = 0; assemblyIndex < assemblies.Length; assemblyIndex++)
-            {
-                Assembly assembly = assemblies[assemblyIndex];
-                if (assembly == null)
-                    continue;
-
-                Type[] types;
-                try
-                {
-                    types = assembly.GetTypes();
-                }
-                catch (ReflectionTypeLoadException ex)
-                {
-                    types = ex.Types;
-                }
-                catch
-                {
-                    continue;
-                }
-
-                if (types == null)
-                    continue;
-
-                for (int typeIndex = 0; typeIndex < types.Length; typeIndex++)
-                {
-                    Type type = types[typeIndex];
-                    if (type == null)
-                        continue;
-
-                    string typeName = type.FullName ?? type.Name;
-                    bool matched = false;
-
-                    for (int keywordIndex = 0; keywordIndex < keywords.Length; keywordIndex++)
-                    {
-                        if (typeName.IndexOf(keywords[keywordIndex],
-                            StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            matched = true;
-                            break;
-                        }
-                    }
-
-                    if (matched)
-                        matches.Add(assembly.GetName().Name + "!" + typeName);
-                }
-            }
-
-            LoggerInstance.Msg("[Diagnostics] Loaded assemblies=" + assemblies.Length +
-                " | Blur-related types found=" + matches.Count);
-
-            int outputCount = Math.Min(matches.Count, 25);
-            for (int i = 0; i < outputCount; i++)
-                LoggerInstance.Msg("[Diagnostics]   TypeMatch: " + matches[i]);
-
-            if (matches.Count > outputCount)
-                LoggerInstance.Msg("[Diagnostics]   Additional matching types omitted: " +
-                    (matches.Count - outputCount));
         }
 
         private void LogBlurHierarchyComponents(Transform target, int parentLevels)
