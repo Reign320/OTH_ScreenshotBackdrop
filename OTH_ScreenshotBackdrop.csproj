@@ -14,11 +14,26 @@
   <Target Name="ValidateGameDirectory" BeforeTargets="ResolveReferences" Condition="'$(DesignTimeBuild)' != 'true'">
     <Error Condition="'$(GameDir)' == ''" Text="GameDir is not set. Pass -p:GameDir=&quot;path to Over The Hill&quot; or define the OTH_GAME_DIR environment variable." />
     <Error Condition="'$(GameDir)' != '' and !Exists('$(GameDir)\MelonLoader\net6\MelonLoader.dll')" Text="MelonLoader.dll was not found under '$(GameDir)'. Check the GameDir path." />
+    <Error Condition="'$(GameDir)' != '' and !Exists('$(GameDir)\MelonLoader\Il2CppAssemblies\Il2Cppmscorlib.dll')" Text="Il2Cppmscorlib.dll was not found. Launch the game with MelonLoader once to generate IL2CPP assemblies." />
+    <Error Condition="'$(GameDir)' != '' and !Exists('$(GameDir)\MelonLoader\net6\Il2CppInterop.Runtime.dll')" Text="Il2CppInterop.Runtime.dll was not found under MelonLoader\net6. Check the MelonLoader installation." />
+    <Error Condition="'$(GameDir)' != '' and !Exists('$(GameDir)\MelonLoader\net6\Il2CppInterop.Common.dll')" Text="Il2CppInterop.Common.dll was not found under MelonLoader\net6. Check the MelonLoader installation." />
   </Target>
 
   <ItemGroup>
     <Reference Include="MelonLoader">
       <HintPath>$(GameDir)\MelonLoader\net6\MelonLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2Cppmscorlib">
+      <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2Cppmscorlib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Common">
+      <HintPath>$(GameDir)\MelonLoader\net6\Il2CppInterop.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(GameDir)\MelonLoader\net6\Il2CppInterop.Runtime.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
