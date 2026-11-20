@@ -8,7 +8,7 @@ It creates a full-screen, solid-color UI layer that covers the 3D game world whi
 
 - `F9` — toggle the backdrop on/off.
 - The backdrop starts disabled every time the game launches.
-- Default color: chroma green (`#00FF00`).
+- Default color: warm off-white (`#F4EDE0`).
 
 ## Installation
 
@@ -22,7 +22,7 @@ It creates a full-screen, solid-color UI layer that covers the 3D game world whi
 
 ```ini
 [General]
-Color=#00FF00
+Color=#F4EDE0
 ToggleKey=F9
 ```
 
