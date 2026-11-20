@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Reflection;
 
 using MelonLoader;
 using MelonLoader.Utils;
@@ -99,6 +100,15 @@ namespace OTH_ScreenshotBackdrop
                 LoggerInstance.Warning("[Diagnostics] Blur scan failed: " + ex.Message);
             }
 
+            try
+            {
+                ScanLoadedBlurTypes();
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Warning("[Diagnostics] Loaded-type scan failed: " + ex.Message);
+            }
+
             LoggerInstance.Msg("[Diagnostics] ===== BLUR SOURCE SCAN END =====");
         }
 
@@ -164,6 +174,9 @@ namespace OTH_ScreenshotBackdrop
                         " | Path=" + hierarchy +
                         " | Shader=" + (material == null || material.shader == null ? "None" : material.shader.name));
 
+                    if (logged == 1 && material != null && material.shader != null)
+                        LogShaderProperties(material.shader);
+
                     LogBlurHierarchyComponents(graphic.transform, 3);
 
                     if (material != null)
@@ -199,6 +212,130 @@ namespace OTH_ScreenshotBackdrop
 
             LoggerInstance.Msg("[Diagnostics] Relevant active blur targets logged: " + logged +
                 " (maximum 8; duplicate nested-canvas entries skipped).");
+        }
+
+        private void LogShaderProperties(Shader shader)
+        {
+            Type shaderType = shader.GetType();
+            LoggerInstance.Msg("[Diagnostics] Shader runtime type: " +
+                (shaderType.FullName ?? shaderType.Name));
+
+            try
+            {
+                MethodInfo countMethod = shaderType.GetMethod(
+                    "GetPropertyCount",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic
+                );
+                MethodInfo nameMethod = shaderType.GetMethod(
+                    "GetPropertyName",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    null,
+                    new Type[] { typeof(int) },
+                    null
+                );
+                MethodInfo typeMethod = shaderType.GetMethod(
+                    "GetPropertyType",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    null,
+                    new Type[] { typeof(int) },
+                    null
+                );
+
+                if (countMethod == null || nameMethod == null)
+                {
+                    LoggerInstance.Msg("[Diagnostics] Shader property enumeration API is not exposed by this runtime wrapper.");
+                    return;
+                }
+
+                int count = Convert.ToInt32(countMethod.Invoke(shader, null));
+                int limit = Math.Min(count, 40);
+                LoggerInstance.Msg("[Diagnostics] Shader properties: " + count +
+                    " (listing " + limit + ")");
+
+                for (int i = 0; i < limit; i++)
+                {
+                    object name = nameMethod.Invoke(shader, new object[] { i });
+                    object propertyType = typeMethod == null
+                        ? null
+                        : typeMethod.Invoke(shader, new object[] { i });
+
+                    LoggerInstance.Msg("[Diagnostics]   ShaderProperty[" + i + "] " +
+                        Convert.ToString(name) +
+                        (propertyType == null ? "" : " | Type=" + propertyType));
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Msg("[Diagnostics] Shader property enumeration unavailable: " +
+                    ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        private void ScanLoadedBlurTypes()
+        {
+            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            System.Collections.Generic.List<string> matches =
+                new System.Collections.Generic.List<string>();
+
+            string[] keywords = { "blur", "translucentimage", "capture", "screenspace" };
+
+            for (int assemblyIndex = 0; assemblyIndex < assemblies.Length; assemblyIndex++)
+            {
+                Assembly assembly = assemblies[assemblyIndex];
+                if (assembly == null)
+                    continue;
+
+                Type[] types;
+                try
+                {
+                    types = assembly.GetTypes();
+                }
+                catch (ReflectionTypeLoadException ex)
+                {
+                    types = ex.Types;
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (types == null)
+                    continue;
+
+                for (int typeIndex = 0; typeIndex < types.Length; typeIndex++)
+                {
+                    Type type = types[typeIndex];
+                    if (type == null)
+                        continue;
+
+                    string typeName = type.FullName ?? type.Name;
+                    bool matched = false;
+
+                    for (int keywordIndex = 0; keywordIndex < keywords.Length; keywordIndex++)
+                    {
+                        if (typeName.IndexOf(keywords[keywordIndex],
+                            StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            matched = true;
+                            break;
+                        }
+                    }
+
+                    if (matched)
+                        matches.Add(assembly.GetName().Name + "!" + typeName);
+                }
+            }
+
+            LoggerInstance.Msg("[Diagnostics] Loaded assemblies=" + assemblies.Length +
+                " | Blur-related types found=" + matches.Count);
+
+            int outputCount = Math.Min(matches.Count, 25);
+            for (int i = 0; i < outputCount; i++)
+                LoggerInstance.Msg("[Diagnostics]   TypeMatch: " + matches[i]);
+
+            if (matches.Count > outputCount)
+                LoggerInstance.Msg("[Diagnostics]   Additional matching types omitted: " +
+                    (matches.Count - outputCount));
         }
 
         private void LogBlurHierarchyComponents(Transform target, int parentLevels)
