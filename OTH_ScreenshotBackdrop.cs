@@ -2,6 +2,7 @@ using System;
 using System.IO;
 
 using MelonLoader;
+using MelonLoader.Utils;
 
 using UnityEngine;
 using UnityEngine.UI;
