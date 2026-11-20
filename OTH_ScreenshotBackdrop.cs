@@ -108,6 +108,15 @@ namespace OTH_ScreenshotBackdrop
                 LoggerInstance.Warning("[Diagnostics] Canvas scan failed: " + ex);
             }
 
+            try
+            {
+                ScanTranslucentImageComponents();
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Warning("[Diagnostics] TranslucentImage scan failed: " + ex);
+            }
+
             LoggerInstance.Msg("[Diagnostics] Note: Canvas scanning cannot enumerate arbitrary OnGUI callbacks, custom render passes or native/plugin rendering.");
             LoggerInstance.Msg("[Diagnostics] ===== UI / RENDERING SCAN END =====");
         }
@@ -230,6 +239,117 @@ namespace OTH_ScreenshotBackdrop
             }
 
             LoggerInstance.Msg("[Diagnostics] Scene canvases logged: " + logged);
+        }
+
+        private void ScanTranslucentImageComponents()
+        {
+            Component[] components = Resources.FindObjectsOfTypeAll<Component>();
+            int logged = 0;
+
+            LoggerInstance.Msg("[Diagnostics] TranslucentImage-related components: scanning " +
+                (components == null ? 0 : components.Length) + " components.");
+
+            if (components == null)
+                return;
+
+            for (int i = 0; i < components.Length; i++)
+            {
+                Component component = components[i];
+
+                try
+                {
+                    if (component == null || component.gameObject == null ||
+                        !component.gameObject.scene.IsValid())
+                        continue;
+
+                    System.Type componentType = component.GetType();
+                    string typeName = componentType.FullName ?? componentType.Name;
+
+                    if (typeName.IndexOf("TranslucentImage", StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+
+                    string hierarchy = component.gameObject.name;
+                    Transform parent = component.transform.parent;
+                    int depth = 0;
+
+                    while (parent != null && depth < 12)
+                    {
+                        hierarchy = parent.name + "/" + hierarchy;
+                        parent = parent.parent;
+                        depth++;
+                    }
+
+                    string enabledState = "n/a";
+                    Behaviour behaviour = component as Behaviour;
+                    if (behaviour != null)
+                        enabledState = behaviour.enabled.ToString();
+
+                    LoggerInstance.Msg(
+                        "[Diagnostics] Blur component #" + (++logged) +
+                        " | Type=" + typeName +
+                        " | Object=" + hierarchy +
+                        " | Active=" + component.gameObject.activeInHierarchy +
+                        " | Enabled=" + enabledState
+                    );
+
+                    System.Reflection.FieldInfo[] fields = componentType.GetFields(
+                        System.Reflection.BindingFlags.Instance |
+                        System.Reflection.BindingFlags.Public |
+                        System.Reflection.BindingFlags.NonPublic
+                    );
+
+                    int relevantFields = 0;
+                    for (int fieldIndex = 0; fieldIndex < fields.Length && relevantFields < 16; fieldIndex++)
+                    {
+                        System.Reflection.FieldInfo field = fields[fieldIndex];
+                        string fieldName = field.Name;
+
+                        if (fieldName.IndexOf("source", StringComparison.OrdinalIgnoreCase) < 0 &&
+                            fieldName.IndexOf("texture", StringComparison.OrdinalIgnoreCase) < 0 &&
+                            fieldName.IndexOf("camera", StringComparison.OrdinalIgnoreCase) < 0 &&
+                            fieldName.IndexOf("blur", StringComparison.OrdinalIgnoreCase) < 0 &&
+                            fieldName.IndexOf("material", StringComparison.OrdinalIgnoreCase) < 0 &&
+                            fieldName.IndexOf("capture", StringComparison.OrdinalIgnoreCase) < 0 &&
+                            fieldName.IndexOf("command", StringComparison.OrdinalIgnoreCase) < 0)
+                            continue;
+
+                        string fieldValue = "(unavailable)";
+                        try
+                        {
+                            object value = field.GetValue(component);
+                            if (value == null)
+                                fieldValue = "null";
+                            else
+                            {
+                                UnityEngine.Object unityObject = value as UnityEngine.Object;
+                                if (unityObject != null)
+                                    fieldValue = unityObject.GetType().Name + ":" + unityObject.name;
+                                else if (value is string || value.GetType().IsPrimitive || value.GetType().IsEnum)
+                                    fieldValue = value.ToString();
+                                else
+                                    fieldValue = value.GetType().FullName;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            fieldValue = "read failed: " + ex.GetType().Name;
+                        }
+
+                        LoggerInstance.Msg("[Diagnostics]   Field " + fieldName +
+                            " (" + field.FieldType.Name + ") = " + fieldValue);
+                        relevantFields++;
+                    }
+
+                    if (relevantFields == 0)
+                        LoggerInstance.Msg("[Diagnostics]   No source/texture/camera-related instance fields exposed.");
+                }
+                catch (Exception ex)
+                {
+                    LoggerInstance.Warning("[Diagnostics] Could not inspect blur component #" + i + ": " + ex.Message);
+                }
+            }
+
+            LoggerInstance.Msg("[Diagnostics] TranslucentImage-related components logged: " + logged);
         }
 
         private string BuildShaderSummary(Graphic[] graphics)
