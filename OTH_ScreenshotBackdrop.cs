@@ -16,7 +16,7 @@ namespace OTH_ScreenshotBackdrop
     {
         private const string ModFolderName = "OTH_ScreenshotBackdrop";
         private const string ConfigFileName = "OTH_ScreenshotBackdrop.cfg";
-        private const string DefaultColor = "#00FF00";
+        private const string DefaultColor = "#F4EDE0";
         private const string DefaultToggleKey = "F9";
         private const int BackdropSortingOrder = -32768;
 
@@ -87,10 +87,11 @@ namespace OTH_ScreenshotBackdrop
             }
 
             string[] lines = File.ReadAllLines(_configPath);
+            bool migratedDefaultColor = false;
 
-            foreach (string rawLine in lines)
+            for (int i = 0; i < lines.Length; i++)
             {
-                string line = rawLine.Trim();
+                string line = lines[i].Trim();
 
                 if (line.Length == 0 || line.StartsWith(";") || line.StartsWith("["))
                     continue;
@@ -104,8 +105,17 @@ namespace OTH_ScreenshotBackdrop
 
                 if (key.Equals("Color", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (TryNormalizeColor(value, out string normalizedColor))
+                    // Migrate the previous built-in default without changing user-selected colors.
+                    if (value.Equals("#00FF00", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _colorHex = DefaultColor;
+                        lines[i] = "Color=" + DefaultColor;
+                        migratedDefaultColor = true;
+                    }
+                    else if (TryNormalizeColor(value, out string normalizedColor))
+                    {
                         _colorHex = normalizedColor;
+                    }
                 }
                 else if (key.Equals("ToggleKey", StringComparison.OrdinalIgnoreCase))
                 {
@@ -116,6 +126,9 @@ namespace OTH_ScreenshotBackdrop
                     }
                 }
             }
+
+            if (migratedDefaultColor)
+                File.WriteAllLines(_configPath, lines);
         }
 
         private void WriteDefaultConfig()
