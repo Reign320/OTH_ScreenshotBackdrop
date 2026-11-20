@@ -30,6 +30,15 @@ namespace OTH_ScreenshotBackdrop
         private KeyCode _toggleKey = KeyCode.F9;
         private bool _enabled;
 
+        // The LeTai blur pass captures the camera color buffer, not Screen Space Overlay.
+        // Keep the game camera's color buffer flat while the backdrop is enabled so
+        // TranslucentImage receives the configured backdrop color instead of the 3D world.
+        private Camera _overriddenCamera;
+        private CameraClearFlags _originalCameraClearFlags;
+        private Color _originalCameraBackgroundColor;
+        private int _originalCameraCullingMask;
+        private bool _cameraOverrideApplied;
+
         public override void OnInitializeMelon()
         {
             try
@@ -58,6 +67,9 @@ namespace OTH_ScreenshotBackdrop
             {
                 if (Input.GetKeyDown(DiagnosticKey))
                     RunDiagnostics();
+
+                if (_enabled)
+                    SyncCameraOverride();
             }
             catch (Exception ex)
             {
@@ -1170,6 +1182,11 @@ namespace OTH_ScreenshotBackdrop
             _enabled = enabled;
             _canvasObject.SetActive(enabled);
 
+            if (enabled)
+                SyncCameraOverride();
+            else
+                RestoreCameraOverride();
+
             LoggerInstance.Msg(
                 "Backdrop " + (enabled ? "enabled" : "disabled") +
                 " (" + _colorHex + ")."
@@ -1179,6 +1196,7 @@ namespace OTH_ScreenshotBackdrop
         private void DestroyBackdrop()
         {
             _enabled = false;
+            RestoreCameraOverride();
 
             if (_canvasObject != null)
             {
@@ -1194,6 +1212,86 @@ namespace OTH_ScreenshotBackdrop
 
             _canvasObject = null;
             _backdropImage = null;
+        }
+
+        private void SyncCameraOverride()
+        {
+            Camera target = Camera.main;
+
+            if (target == null)
+            {
+                Camera[] cameras = Resources.FindObjectsOfTypeAll<Camera>();
+                if (cameras != null)
+                {
+                    for (int i = 0; i < cameras.Length; i++)
+                    {
+                        Camera candidate = cameras[i];
+                        if (candidate == null || !candidate.isActiveAndEnabled ||
+                            !candidate.gameObject.scene.IsValid() ||
+                            candidate.cameraType != CameraType.Game)
+                            continue;
+
+                        target = candidate;
+                        break;
+                    }
+                }
+            }
+
+            if (target == null)
+                return;
+
+            if (_cameraOverrideApplied && _overriddenCamera != target)
+                RestoreCameraOverride();
+
+            if (_cameraOverrideApplied)
+            {
+                // Reapply only the values owned by this mod. This also handles
+                // another component changing the camera while the backdrop is active.
+                _overriddenCamera.clearFlags = CameraClearFlags.SolidColor;
+                _overriddenCamera.backgroundColor = ParseColor(_colorHex);
+                _overriddenCamera.cullingMask = 0;
+                return;
+            }
+
+            _overriddenCamera = target;
+            _originalCameraClearFlags = target.clearFlags;
+            _originalCameraBackgroundColor = target.backgroundColor;
+            _originalCameraCullingMask = target.cullingMask;
+
+            target.clearFlags = CameraClearFlags.SolidColor;
+            target.backgroundColor = ParseColor(_colorHex);
+            target.cullingMask = 0;
+            _cameraOverrideApplied = true;
+
+            LoggerInstance.Msg("[Camera] Main scene camera isolated for backdrop capture. " +
+                "Camera=" + target.name +
+                " | OriginalClearFlags=" + _originalCameraClearFlags +
+                " | OriginalCullingMask=" + _originalCameraCullingMask +
+                " | Background=" + _colorHex);
+        }
+
+        private void RestoreCameraOverride()
+        {
+            if (!_cameraOverrideApplied)
+                return;
+
+            try
+            {
+                if (_overriddenCamera != null)
+                {
+                    _overriddenCamera.clearFlags = _originalCameraClearFlags;
+                    _overriddenCamera.backgroundColor = _originalCameraBackgroundColor;
+                    _overriddenCamera.cullingMask = _originalCameraCullingMask;
+                    LoggerInstance.Msg("[Camera] Restored original camera rendering state.");
+                }
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Warning("[Camera] Could not fully restore camera state: " + ex.Message);
+            }
+
+            _overriddenCamera = null;
+            _cameraOverrideApplied = false;
         }
 
         private static bool TryNormalizeColor(string value, out string normalized)
