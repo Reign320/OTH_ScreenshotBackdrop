@@ -199,137 +199,173 @@ namespace OTH_ScreenshotBackdrop
         {
             const string sourceTypeName = "Il2CppLeTai.Asset.TranslucentImage.TranslucentImageSource";
             const string imageTypeName = "Il2CppLeTai.Asset.TranslucentImage.TranslucentImage";
-            Type sourceType = FindLoadedType(sourceTypeName, "LeTai.Asset.TranslucentImage.TranslucentImageSource");
-            Type imageType = FindLoadedType(imageTypeName, "LeTai.Asset.TranslucentImage.TranslucentImage");
 
-            if (sourceType == null)
+            Type sourceType = FindLoadedType(
+                sourceTypeName,
+                "LeTai.Asset.TranslucentImage.TranslucentImageSource");
+            Type imageType = FindLoadedType(
+                imageTypeName,
+                "LeTai.Asset.TranslucentImage.TranslucentImage");
+
+            if (sourceType == null || imageType == null)
             {
-                LoggerInstance.Warning("[Diagnostics][LeTai] TranslucentImageSource type not found.");
+                LoggerInstance.Warning("[Diagnostics][LeTai] Required runtime types are missing. " +
+                    "ImageType=" + (imageType == null ? "not found" : imageType.FullName) +
+                    " | SourceType=" + (sourceType == null ? "not found" : sourceType.FullName));
                 return;
             }
 
-            LoggerInstance.Msg("[Diagnostics][LeTai] Source type resolved: " + sourceType.FullName);
-            if (imageType == null)
+            Component[] allComponents;
+            try
             {
-                LoggerInstance.Warning("[Diagnostics][LeTai] TranslucentImage component type not found. " +
-                    "Cannot follow source references from the known HUD blur targets.");
+                // Search globally. These components are not necessarily attached to
+                // the Graphic that uses their material, nor parented under a Canvas.
+                allComponents = Resources.FindObjectsOfTypeAll<Component>();
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Warning("[Diagnostics][LeTai] Global component enumeration failed: " +
+                    ex.GetType().Name + ": " + ex.Message);
                 return;
             }
 
-            LoggerInstance.Msg("[Diagnostics][LeTai] Image type resolved: " + imageType.FullName);
+            if (allComponents == null)
+            {
+                LoggerInstance.Warning("[Diagnostics][LeTai] Global component enumeration returned null.");
+                return;
+            }
 
-            Canvas[] canvases = Resources.FindObjectsOfTypeAll<Canvas>();
+            System.Collections.Generic.HashSet<int> inspectedImages =
+                new System.Collections.Generic.HashSet<int>();
             System.Collections.Generic.HashSet<int> inspectedSources =
                 new System.Collections.Generic.HashSet<int>();
-            int targetCount = 0;
-            int sourceCount = 0;
+            int imageCount = 0;
+            int linkedSourceCount = 0;
+            int standaloneSourceCount = 0;
+            int loggedImages = 0;
+            int loggedSources = 0;
+            const int maxImageLogs = 40;
+            const int maxSourceLogs = 40;
 
-            if (canvases == null)
-            {
-                LoggerInstance.Warning("[Diagnostics][LeTai] No canvases available for target-based source scan.");
-                return;
-            }
+            LoggerInstance.Msg("[Diagnostics][LeTai] Global component scan started. Components=" +
+                allComponents.Length + " | ImageType=" + imageType.FullName +
+                " | SourceType=" + sourceType.FullName + ".");
 
-            for (int canvasIndex = 0; canvasIndex < canvases.Length; canvasIndex++)
+            for (int i = 0; i < allComponents.Length; i++)
             {
-                Canvas canvas = canvases[canvasIndex];
-                if (canvas == null || !canvas.gameObject.scene.IsValid() ||
-                    canvas.gameObject == _canvasObject)
+                Component component = allComponents[i];
+                if (component == null)
                     continue;
 
-                Graphic[] graphics;
+                Type componentType;
                 try
                 {
-                    graphics = canvas.GetComponentsInChildren<Graphic>(true);
+                    componentType = component.GetType();
                 }
                 catch
                 {
                     continue;
                 }
 
-                if (graphics == null)
+                string fullName = componentType.FullName ?? componentType.Name;
+                bool isImage = string.Equals(fullName, imageType.FullName, StringComparison.Ordinal);
+                bool isSource = string.Equals(fullName, sourceType.FullName, StringComparison.Ordinal);
+                if (!isImage && !isSource)
                     continue;
 
-                for (int graphicIndex = 0; graphicIndex < graphics.Length; graphicIndex++)
+                int instanceId;
+                try
                 {
-                    Graphic graphic = graphics[graphicIndex];
-                    if (graphic == null ||
-                        !graphic.gameObject.name.Equals("BlurredBackground", StringComparison.OrdinalIgnoreCase))
+                    instanceId = component.GetInstanceID();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                GameObject owner = component.gameObject;
+                if (owner == null)
+                    continue;
+
+                string hierarchy = GetHierarchyPath(component.transform, 16);
+                string sceneName = owner.scene.IsValid() ? owner.scene.name : "(asset-or-invalid-scene)";
+                Behaviour behaviour = component as Behaviour;
+                string enabledState = behaviour == null ? "n/a" : behaviour.enabled.ToString();
+
+                if (isImage)
+                {
+                    if (!inspectedImages.Add(instanceId))
                         continue;
 
-                    string hierarchy = GetHierarchyPath(graphic.transform, 8);
-                    if (hierarchy.IndexOf("Time", StringComparison.OrdinalIgnoreCase) < 0 &&
-                        hierarchy.IndexOf("OTH_CustomRoadMeter", StringComparison.OrdinalIgnoreCase) < 0 &&
-                        hierarchy.IndexOf("OTH_SpeedPlate", StringComparison.OrdinalIgnoreCase) < 0)
+                    imageCount++;
+                    if (loggedImages >= maxImageLogs)
                         continue;
 
-                    targetCount++;
-                    Component translucentImage = null;
-                    try
-                    {
-                        // Enumerate attached components and compare runtime type names.
-                        // This avoids the System.Type / Il2CppSystem.Type overload mismatch
-                        // and does not require a compile-time reference to LeTai's assembly.
-                        Component[] attachedComponents = graphic.GetComponents<Component>();
-                        if (attachedComponents != null)
-                        {
-                            for (int componentIndex = 0; componentIndex < attachedComponents.Length; componentIndex++)
-                            {
-                                Component candidate = attachedComponents[componentIndex];
-                                if (candidate == null)
-                                    continue;
-
-                                Type candidateType = candidate.GetType();
-                                if (candidateType != null &&
-                                    string.Equals(candidateType.FullName, imageType.FullName, StringComparison.Ordinal))
-                                {
-                                    translucentImage = candidate;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        LoggerInstance.Warning("[Diagnostics][LeTai] Component enumeration failed for " +
-                            hierarchy + ": " + ex.GetType().Name + ": " + ex.Message);
-                    }
-
-                    if (translucentImage == null)
-                    {
-                        LoggerInstance.Warning("[Diagnostics][LeTai] No TranslucentImage component found on " + hierarchy);
-                        continue;
-                    }
+                    loggedImages++;
+                    LoggerInstance.Msg("[Diagnostics][LeTai] ===== TRANS LUCENT IMAGE #" + imageCount + " =====");
+                    LoggerInstance.Msg("[Diagnostics][LeTai] Image=" + hierarchy +
+                        " | Scene=" + sceneName +
+                        " | Active=" + owner.activeInHierarchy +
+                        " | Enabled=" + enabledState +
+                        " | InstanceID=" + instanceId);
 
                     object sourceValue = ReadDiagnosticMember(
-                        translucentImage, imageType, "source", "_source");
-
+                        component, componentType, "source", "_source");
                     Component sourceComponent = sourceValue as Component;
-                    if (sourceComponent == null)
-                    {
-                        LoggerInstance.Warning("[Diagnostics][LeTai] source reference is not a Component on " +
-                            hierarchy + " | Value=" + FormatDiagnosticValue(sourceValue));
-                        continue;
-                    }
 
-                    int sourceId = sourceComponent.GetInstanceID();
-                    if (!inspectedSources.Add(sourceId))
-                    {
-                        LoggerInstance.Msg("[Diagnostics][LeTai] Shared source reused by target: " + hierarchy +
-                            " | SourceID=" + sourceId);
-                        continue;
-                    }
+                    LoggerInstance.Msg("[Diagnostics][LeTai] Image.source=" +
+                        FormatDiagnosticValue(sourceValue));
 
-                    sourceCount++;
-                    LoggerInstance.Msg("[Diagnostics][LeTai] Target=" + hierarchy +
-                        " | TranslucentImage=" + GetHierarchyPath(translucentImage.transform, 8) +
-                        " | SourceID=" + sourceId);
-                    LogTranslucentImageSource(sourceComponent, sourceType, sourceCount);
+                    if (sourceComponent != null)
+                    {
+                        int sourceId = sourceComponent.GetInstanceID();
+                        LoggerInstance.Msg("[Diagnostics][LeTai] LinkedSource=" +
+                            GetHierarchyPath(sourceComponent.transform, 16) +
+                            " | Scene=" + (sourceComponent.gameObject.scene.IsValid()
+                                ? sourceComponent.gameObject.scene.name
+                                : "(asset-or-invalid-scene)") +
+                            " | Active=" + sourceComponent.gameObject.activeInHierarchy +
+                            " | InstanceID=" + sourceId);
+
+                        if (inspectedSources.Add(sourceId))
+                        {
+                            linkedSourceCount++;
+                            LogTranslucentImageSource(sourceComponent, sourceType, linkedSourceCount);
+                        }
+                    }
+                    else
+                    {
+                        LoggerInstance.Warning("[Diagnostics][LeTai] Image source is not a readable Component reference.");
+                        LogComponentFields(component, 8);
+                    }
+                }
+                else
+                {
+                    if (!inspectedSources.Add(instanceId))
+                        continue;
+
+                    standaloneSourceCount++;
+                    if (loggedSources >= maxSourceLogs)
+                        continue;
+
+                    loggedSources++;
+                    LoggerInstance.Msg("[Diagnostics][LeTai] ===== GLOBAL SOURCE #" +
+                        standaloneSourceCount + " =====");
+                    LoggerInstance.Msg("[Diagnostics][LeTai] Source=" + hierarchy +
+                        " | Scene=" + sceneName +
+                        " | Active=" + owner.activeInHierarchy +
+                        " | Enabled=" + enabledState +
+                        " | InstanceID=" + instanceId);
+                    LogTranslucentImageSource(component, sourceType, standaloneSourceCount);
                 }
             }
 
-            LoggerInstance.Msg("[Diagnostics][LeTai] Target-based scan complete. Targets=" +
-                targetCount + " | Unique sources=" + sourceCount + ".");
+            LoggerInstance.Msg("[Diagnostics][LeTai] Global scan complete. " +
+                "TranslucentImage instances=" + imageCount +
+                " | Unique linked sources=" + linkedSourceCount +
+                " | Total source instances=" + standaloneSourceCount +
+                " | Image logs=" + loggedImages + "/" + maxImageLogs +
+                " | Source logs=" + loggedSources + "/" + maxSourceLogs + ".");
         }
 
         private void ScanTranslucentImageSourceSetters()
