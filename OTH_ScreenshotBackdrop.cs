@@ -266,11 +266,14 @@ namespace OTH_ScreenshotBackdrop
                     Component translucentImage = null;
                     try
                     {
-                        translucentImage = graphic.GetComponent(imageType);
+                        // Use the generated generic IL2CPP binding. GetComponent(Type) expects
+                        // Il2CppSystem.Type, whereas reflection above returns System.Type.
+                        translucentImage =
+                            graphic.GetComponent<Il2CppLeTai.Asset.TranslucentImage.TranslucentImage>();
                     }
                     catch (Exception ex)
                     {
-                        LoggerInstance.Warning("[Diagnostics][LeTai] GetComponent(TranslucentImage) failed for " +
+                        LoggerInstance.Warning("[Diagnostics][LeTai] GetComponent<TranslucentImage>() failed for " +
                             hierarchy + ": " + ex.GetType().Name + ": " + ex.Message);
                     }
 
