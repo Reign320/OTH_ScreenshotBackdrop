@@ -266,14 +266,31 @@ namespace OTH_ScreenshotBackdrop
                     Component translucentImage = null;
                     try
                     {
-                        // Use the generated generic IL2CPP binding. GetComponent(Type) expects
-                        // Il2CppSystem.Type, whereas reflection above returns System.Type.
-                        translucentImage =
-                            graphic.GetComponent<Il2CppLeTai.Asset.TranslucentImage.TranslucentImage>();
+                        // Enumerate attached components and compare runtime type names.
+                        // This avoids the System.Type / Il2CppSystem.Type overload mismatch
+                        // and does not require a compile-time reference to LeTai's assembly.
+                        Component[] attachedComponents = graphic.GetComponents<Component>();
+                        if (attachedComponents != null)
+                        {
+                            for (int componentIndex = 0; componentIndex < attachedComponents.Length; componentIndex++)
+                            {
+                                Component candidate = attachedComponents[componentIndex];
+                                if (candidate == null)
+                                    continue;
+
+                                Type candidateType = candidate.GetType();
+                                if (candidateType != null &&
+                                    string.Equals(candidateType.FullName, imageType.FullName, StringComparison.Ordinal))
+                                {
+                                    translucentImage = candidate;
+                                    break;
+                                }
+                            }
+                        }
                     }
                     catch (Exception ex)
                     {
-                        LoggerInstance.Warning("[Diagnostics][LeTai] GetComponent<TranslucentImage>() failed for " +
+                        LoggerInstance.Warning("[Diagnostics][LeTai] Component enumeration failed for " +
                             hierarchy + ": " + ex.GetType().Name + ": " + ex.Message);
                     }
 
