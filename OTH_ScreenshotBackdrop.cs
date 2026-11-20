@@ -292,7 +292,7 @@ namespace OTH_ScreenshotBackdrop
             LoggerInstance.Msg("[Diagnostics][LeTai] ===== SOURCE #" + index + " =====");
             LoggerInstance.Msg("[Diagnostics][LeTai] Object=" +
                 GetHierarchyPath(source.transform, 10) +
-                " | Enabled=" + source.enabled +
+                " | Enabled=" + ((Behaviour)source).enabled +
                 " | Active=" + source.gameObject.activeInHierarchy +
                 " | InstanceID=" + source.GetInstanceID());
 
