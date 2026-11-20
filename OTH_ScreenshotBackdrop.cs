@@ -334,69 +334,165 @@ namespace OTH_ScreenshotBackdrop
 
         private void ScanTranslucentImageSourceSetters()
         {
-            const string setterTypeToken = "TranslucentImageSourceSetter";
-            Canvas[] canvases = Resources.FindObjectsOfTypeAll<Canvas>();
-            System.Collections.Generic.HashSet<int> inspected =
-                new System.Collections.Generic.HashSet<int>();
-            int found = 0;
+            const string setterTypeName = "TranslucentImageSourceSetter";
+            const string imageTypeName = "Il2CppLeTai.Asset.TranslucentImage.TranslucentImage";
+            const string sourceTypeName = "Il2CppLeTai.Asset.TranslucentImage.TranslucentImageSource";
 
-            if (canvases == null)
+            Type imageType = FindLoadedType(
+                imageTypeName,
+                "LeTai.Asset.TranslucentImage.TranslucentImage");
+            Type sourceType = FindLoadedType(
+                sourceTypeName,
+                "LeTai.Asset.TranslucentImage.TranslucentImageSource");
+
+            Component[] allComponents;
+            try
             {
-                LoggerInstance.Warning("[Diagnostics][Setter] No canvases available.");
+                // Search every loaded Component, not just components parented under a Canvas.
+                // The game's setter may live on a camera, manager, or another scene object.
+                allComponents = Resources.FindObjectsOfTypeAll<Component>();
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Warning("[Diagnostics][Setter] Global component enumeration failed: " +
+                    ex.GetType().Name + ": " + ex.Message);
                 return;
             }
 
-            for (int canvasIndex = 0; canvasIndex < canvases.Length; canvasIndex++)
+            if (allComponents == null)
             {
-                Canvas canvas = canvases[canvasIndex];
-                if (canvas == null || !canvas.gameObject.scene.IsValid() ||
-                    canvas.gameObject == _canvasObject)
-                    continue;
-
-                Component[] components;
-                try
-                {
-                    components = canvas.GetComponentsInChildren<Component>(true);
-                }
-                catch (Exception ex)
-                {
-                    LoggerInstance.Warning("[Diagnostics][Setter] Component scan failed on Canvas " +
-                        canvas.name + ": " + ex.GetType().Name + ": " + ex.Message);
-                    continue;
-                }
-
-                if (components == null)
-                    continue;
-
-                for (int componentIndex = 0; componentIndex < components.Length; componentIndex++)
-                {
-                    Component component = components[componentIndex];
-                    if (component == null)
-                        continue;
-
-                    Type componentType = component.GetType();
-                    string fullName = componentType.FullName ?? componentType.Name;
-                    if (fullName.IndexOf(setterTypeToken, StringComparison.OrdinalIgnoreCase) < 0)
-                        continue;
-
-                    int instanceId = component.GetInstanceID();
-                    if (!inspected.Add(instanceId))
-                        continue;
-
-                    found++;
-                    LoggerInstance.Msg("[Diagnostics][Setter] ===== SETTER #" + found + " =====");
-                    LoggerInstance.Msg("[Diagnostics][Setter] Type=" + fullName +
-                        " | Assembly=" + componentType.Assembly.GetName().Name +
-                        " | Object=" + GetHierarchyPath(component.transform, 12) +
-                        " | Enabled=" + (((Behaviour)component).enabled) +
-                        " | Active=" + component.gameObject.activeInHierarchy +
-                        " | InstanceID=" + instanceId);
-
-                    LogComponentFields(component, 8);
-                }
+                LoggerInstance.Warning("[Diagnostics][Setter] Global component enumeration returned null.");
+                return;
             }
 
-            LoggerInstance.Msg("[Diagnostics][Setter] Scan complete. Setters found=" + found + ".");
+            System.Collections.Generic.HashSet<int> inspected =
+                new System.Collections.Generic.HashSet<int>();
+            int found = 0;
+            int skippedInvalid = 0;
+
+            LoggerInstance.Msg("[Diagnostics][Setter] Global scan started. Loaded components=" +
+                allComponents.Length +
+                " | ImageType=" + (imageType == null ? "not found" : imageType.FullName) +
+                " | SourceType=" + (sourceType == null ? "not found" : sourceType.FullName) + ".");
+
+            for (int componentIndex = 0; componentIndex < allComponents.Length; componentIndex++)
+            {
+                Component component = allComponents[componentIndex];
+                if (component == null)
+                    continue;
+
+                Type componentType;
+                try
+                {
+                    componentType = component.GetType();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                string fullName = componentType.FullName ?? componentType.Name;
+                if (fullName.IndexOf(setterTypeName, StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                int instanceId;
+                try
+                {
+                    instanceId = component.GetInstanceID();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (!inspected.Add(instanceId))
+                    continue;
+
+                GameObject owner = component.gameObject;
+                if (owner == null)
+                    continue;
+
+                UnityEngine.SceneManagement.Scene scene = owner.scene;
+                bool sceneValid = scene.IsValid();
+                if (!sceneValid)
+                {
+                    skippedInvalid++;
+                    continue;
+                }
+
+                found++;
+                Behaviour behaviour = component as Behaviour;
+                string enabledState = behaviour == null ? "n/a" : behaviour.enabled.ToString();
+
+                LoggerInstance.Msg("[Diagnostics][Setter] ===== GLOBAL SETTER #" + found + " =====");
+                LoggerInstance.Msg("[Diagnostics][Setter] Type=" + fullName +
+                    " | Assembly=" + componentType.Assembly.GetName().Name +
+                    " | Object=" + GetHierarchyPath(component.transform, 16) +
+                    " | Scene=" + scene.name +
+                    " | Enabled=" + enabledState +
+                    " | ActiveSelf=" + owner.activeSelf +
+                    " | ActiveInHierarchy=" + owner.activeInHierarchy +
+                    " | InstanceID=" + instanceId);
+
+                object imageValue = ReadDiagnosticMember(
+                    component, componentType, "translucentImage", "translucentImage");
+                Component imageComponent = imageValue as Component;
+
+                if (imageComponent == null)
+                {
+                    LoggerInstance.Warning("[Diagnostics][Setter] translucentImage reference is not a Component. Value=" +
+                        FormatDiagnosticValue(imageValue));
+                    LogComponentFields(component, 8);
+                    continue;
+                }
+
+                Type actualImageType = imageComponent.GetType();
+                LoggerInstance.Msg("[Diagnostics][Setter] translucentImage=" +
+                    FormatDiagnosticValue(imageComponent) +
+                    " | ActualType=" + (actualImageType.FullName ?? actualImageType.Name) +
+                    " | ImageObject=" + GetHierarchyPath(imageComponent.transform, 16) +
+                    " | ImageScene=" + imageComponent.gameObject.scene.name +
+                    " | ImageActive=" + imageComponent.gameObject.activeInHierarchy +
+                    " | ImageInstanceID=" + imageComponent.GetInstanceID());
+
+                if (imageType != null &&
+                    !string.Equals(actualImageType.FullName, imageType.FullName, StringComparison.Ordinal))
+                {
+                    LoggerInstance.Warning("[Diagnostics][Setter] Referenced component type does not match resolved TranslucentImage type.");
+                }
+
+                object sourceValue = ReadDiagnosticMember(
+                    imageComponent, actualImageType, "source", "_source");
+                Component sourceComponent = sourceValue as Component;
+
+                if (sourceComponent == null)
+                {
+                    LoggerInstance.Warning("[Diagnostics][Setter] Referenced TranslucentImage has no readable Component source. Value=" +
+                        FormatDiagnosticValue(sourceValue));
+                }
+                else
+                {
+                    Type actualSourceType = sourceComponent.GetType();
+                    LoggerInstance.Msg("[Diagnostics][Setter] ImageSource=" +
+                        FormatDiagnosticValue(sourceComponent) +
+                        " | ActualType=" + (actualSourceType.FullName ?? actualSourceType.Name) +
+                        " | SourceObject=" + GetHierarchyPath(sourceComponent.transform, 16) +
+                        " | SourceScene=" + sourceComponent.gameObject.scene.name +
+                        " | SourceActive=" + sourceComponent.gameObject.activeInHierarchy +
+                        " | SourceInstanceID=" + sourceComponent.GetInstanceID());
+
+                    if (sourceType != null)
+                        LogTranslucentImageSource(sourceComponent, sourceType, found);
+                    else
+                        LogComponentFields(sourceComponent, 8);
+                }
+
+                LogComponentFields(component, 8);
+            }
+
+            LoggerInstance.Msg("[Diagnostics][Setter] Global scan complete. Setters found=" + found +
+                " | Components on invalid/asset scenes skipped=" + skippedInvalid +
+                " | Duplicate component references skipped=" + inspected.Count + ".");
         }
 
         private Type FindLoadedType(params string[] candidateNames)
