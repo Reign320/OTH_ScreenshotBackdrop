@@ -8,7 +8,7 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <GameDir Condition="'$(GameDir)' == '' and '$(OTH_GAME_DIR)' != ''">$(OTH_GAME_DIR)</GameDir>
-    <GameDir Condition="'$(GameDir)' == ''">E:\Games\over the hill V 26.10.30</GameDir>
+    <GameDir Condition="'$(GameDir)' == ''">E:\Games\Over The Hill</GameDir>
   </PropertyGroup>
 
   <Target Name="ValidateGameDirectory" BeforeTargets="ResolveReferences" Condition="'$(DesignTimeBuild)' != 'true'">
