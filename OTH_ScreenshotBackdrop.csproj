@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>OTH_ScreenshotBackdrop</AssemblyName>
+    <RootNamespace>OTH_ScreenshotBackdrop</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <GameDir Condition="'$(GameDir)' == '' and '$(OTH_GAME_DIR)' != ''">$(OTH_GAME_DIR)</GameDir>
+    <GameDir Condition="'$(GameDir)' == ''">E:\Games\Over The Hill</GameDir>
+  </PropertyGroup>
+
+  <Target Name="ValidateGameDirectory" BeforeTargets="ResolveReferences" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Error Condition="'$(GameDir)' == ''" Text="GameDir is not set. Pass -p:GameDir=&quot;path to Over The Hill&quot; or define the OTH_GAME_DIR environment variable." />
+    <Error Condition="'$(GameDir)' != '' and !Exists('$(GameDir)\MelonLoader\net6\MelonLoader.dll')" Text="MelonLoader.dll was not found under '$(GameDir)'. Check the GameDir path." />
+  </Target>
+
+  <ItemGroup>
+    <Reference Include="MelonLoader">
+      <HintPath>$(GameDir)\MelonLoader\net6\MelonLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.UIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
