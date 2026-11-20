@@ -16,7 +16,7 @@ namespace OTH_ScreenshotBackdrop
     {
         private const string ModFolderName = "OTH_ScreenshotBackdrop";
         private const string ConfigFileName = "OTH_ScreenshotBackdrop.cfg";
-        private const string DefaultColor = "#F4EDE0";
+        private const string DefaultColor = "#E9DFCB";
         private const string DefaultToggleKey = "F9";
         private const int BackdropSortingOrder = -32768;
 
@@ -106,7 +106,7 @@ namespace OTH_ScreenshotBackdrop
                 if (key.Equals("Color", StringComparison.OrdinalIgnoreCase))
                 {
                     // Migrate the previous built-in default without changing user-selected colors.
-                    if (value.Equals("#00FF00", StringComparison.OrdinalIgnoreCase))
+                    if ((value.Equals("#00FF00", StringComparison.OrdinalIgnoreCase) || value.Equals("#F4EDE0", StringComparison.OrdinalIgnoreCase)))
                     {
                         _colorHex = DefaultColor;
                         lines[i] = "Color=" + DefaultColor;
