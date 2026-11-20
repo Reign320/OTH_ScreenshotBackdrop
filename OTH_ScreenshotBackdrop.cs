@@ -100,6 +100,15 @@ namespace OTH_ScreenshotBackdrop
                 LoggerInstance.Warning("[Diagnostics] Blur scan failed: " + ex.Message);
             }
 
+            try
+            {
+                ScanTranslucentImageSources();
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Warning("[Diagnostics] Blur source component scan failed: " + ex.Message);
+            }
+
             LoggerInstance.Msg("[Diagnostics] ===== BLUR SOURCE SCAN END =====");
         }
 
@@ -182,6 +191,116 @@ namespace OTH_ScreenshotBackdrop
                 " (maximum 8; duplicate nested-canvas entries skipped).");
         }
 
+
+
+        private void ScanTranslucentImageSources()
+        {
+            MonoBehaviour[] behaviours = Resources.FindObjectsOfTypeAll<MonoBehaviour>();
+            int found = 0;
+
+            if (behaviours == null)
+            {
+                LoggerInstance.Msg("[Diagnostics] Translucent Image source components: none returned.");
+                return;
+            }
+
+            for (int i = 0; i < behaviours.Length; i++)
+            {
+                MonoBehaviour behaviour = behaviours[i];
+                if (behaviour == null || !behaviour.gameObject.scene.IsValid())
+                    continue;
+
+                Type type = behaviour.GetType();
+                string typeName = type.FullName ?? type.Name;
+                if (typeName.IndexOf("TranslucentImageSource", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    typeName.IndexOf("TranslucentImageBlurSource", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                found++;
+                if (found > 6)
+                    continue;
+
+                LoggerInstance.Msg("[Diagnostics] BlurSource #" + found +
+                    " | Type=" + typeName +
+                    " | Object=" + GetHierarchyPath(behaviour.transform, 8) +
+                    " | Enabled=" + behaviour.enabled +
+                    " | Active=" + behaviour.gameObject.activeInHierarchy);
+
+                LogComponentFields(behaviour, 2);
+            }
+
+            LoggerInstance.Msg("[Diagnostics] Translucent Image source components found: " + found +
+                " (maximum 6 inspected).");
+        }
+
+        private void LogComponentFields(Component component, int maxBaseTypes)
+        {
+            Type currentType = component.GetType();
+            int depth = 0;
+
+            while (currentType != null && currentType != typeof(MonoBehaviour) &&
+                currentType != typeof(Behaviour) && currentType != typeof(Component) &&
+                depth <= maxBaseTypes)
+            {
+                FieldInfo[] fields = currentType.GetFields(
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic |
+                    BindingFlags.DeclaredOnly
+                );
+
+                for (int i = 0; i < fields.Length; i++)
+                {
+                    FieldInfo field = fields[i];
+                    if (field == null || field.IsStatic)
+                        continue;
+
+                    string fieldName = field.Name;
+                    string lowerName = fieldName.ToLowerInvariant();
+                    if (lowerName.IndexOf("source") < 0 &&
+                        lowerName.IndexOf("camera") < 0 &&
+                        lowerName.IndexOf("texture") < 0 &&
+                        lowerName.IndexOf("blur") < 0 &&
+                        lowerName.IndexOf("render") < 0 &&
+                        lowerName.IndexOf("update") < 0 &&
+                        lowerName.IndexOf("preview") < 0 &&
+                        lowerName.IndexOf("material") < 0 &&
+                        lowerName.IndexOf("config") < 0)
+                        continue;
+
+                    string valueText;
+                    try
+                    {
+                        valueText = FormatDiagnosticValue(field.GetValue(component));
+                    }
+                    catch (Exception ex)
+                    {
+                        valueText = "<unavailable:" + ex.GetType().Name + ">";
+                    }
+
+                    LoggerInstance.Msg("[Diagnostics]   Field " + currentType.Name + "." +
+                        fieldName + "=" + valueText);
+                }
+
+                currentType = currentType.BaseType;
+                depth++;
+            }
+        }
+
+        private string FormatDiagnosticValue(object value)
+        {
+            if (value == null)
+                return "null";
+
+            UnityEngine.Object unityObject = value as UnityEngine.Object;
+            if (unityObject != null)
+                return unityObject.GetType().Name + ":" + unityObject.name;
+
+            Type valueType = value.GetType();
+            if (valueType.IsPrimitive || valueType.IsEnum ||
+                value is string || value is decimal)
+                return Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture);
+
+            return "<" + (valueType.FullName ?? valueType.Name) + ">";
+        }
 
         private void LogMaterialState(string label, Material material)
         {
