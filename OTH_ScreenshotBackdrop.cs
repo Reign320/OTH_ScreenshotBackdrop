@@ -104,7 +104,6 @@ namespace OTH_ScreenshotBackdrop
             {
                 ScanTranslucentImageSources();
                 ScanRelatedRuntimeTypes();
-                ScanRelatedSceneComponents();
             }
             catch (Exception ex)
             {
@@ -237,8 +236,17 @@ namespace OTH_ScreenshotBackdrop
 
         private void ScanRelatedRuntimeTypes()
         {
-            string[] tokens = { "Translucent", "Blur", "Grab", "Capture", "Background" };
+            string[] tokens =
+            {
+                "TranslucentImage",
+                "TranslucentImageSource",
+                "TranslucentImageBlurSource",
+                "BlurredBackground",
+                "BlurSource"
+            };
+
             int logged = 0;
+            int matchingAssemblies = 0;
             Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
 
             for (int assemblyIndex = 0; assemblyIndex < assemblies.Length; assemblyIndex++)
@@ -264,6 +272,7 @@ namespace OTH_ScreenshotBackdrop
                 if (types == null)
                     continue;
 
+                bool assemblyMatched = false;
                 for (int typeIndex = 0; typeIndex < types.Length; typeIndex++)
                 {
                     Type type = types[typeIndex];
@@ -272,6 +281,7 @@ namespace OTH_ScreenshotBackdrop
 
                     string fullName = type.FullName ?? type.Name;
                     bool matches = false;
+
                     for (int tokenIndex = 0; tokenIndex < tokens.Length; tokenIndex++)
                     {
                         if (fullName.IndexOf(tokens[tokenIndex], StringComparison.OrdinalIgnoreCase) >= 0)
@@ -284,63 +294,20 @@ namespace OTH_ScreenshotBackdrop
                     if (!matches)
                         continue;
 
-                    LoggerInstance.Msg("[Diagnostics] RuntimeType: " + fullName +
+                    if (!assemblyMatched)
+                    {
+                        matchingAssemblies++;
+                        assemblyMatched = true;
+                    }
+
+                    LoggerInstance.Msg("[Diagnostics] BlurRuntimeType: " + fullName +
                         " | Assembly=" + assembly.GetName().Name);
                     logged++;
-                    if (logged >= 40)
-                        break;
                 }
-
-                if (logged >= 40)
-                    break;
             }
 
-            LoggerInstance.Msg("[Diagnostics] Related runtime types logged: " + logged +
-                " (maximum 40).");
-        }
-
-        private void ScanRelatedSceneComponents()
-        {
-            Component[] components = Resources.FindObjectsOfTypeAll<Component>();
-            int logged = 0;
-
-            if (components == null)
-            {
-                LoggerInstance.Msg("[Diagnostics] Related scene components: none returned.");
-                return;
-            }
-
-            for (int i = 0; i < components.Length; i++)
-            {
-                Component component = components[i];
-                if (component == null || !component.gameObject.scene.IsValid() ||
-                    component.gameObject == _canvasObject)
-                    continue;
-
-                Type type = component.GetType();
-                string typeName = type.FullName ?? type.Name;
-                string objectName = component.gameObject.name;
-                string combined = typeName + " " + objectName;
-
-                if (combined.IndexOf("blur", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    combined.IndexOf("translucent", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    combined.IndexOf("capture", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    combined.IndexOf("background", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    combined.IndexOf("rendertexture", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    combined.IndexOf("grab", StringComparison.OrdinalIgnoreCase) < 0)
-                    continue;
-
-                if (logged >= 30)
-                    break;
-
-                LoggerInstance.Msg("[Diagnostics] RelatedComponent: " + typeName +
-                    " | Object=" + GetHierarchyPath(component.transform, 7) +
-                    " | Active=" + component.gameObject.activeInHierarchy);
-                logged++;
-            }
-
-            LoggerInstance.Msg("[Diagnostics] Related scene components logged: " + logged +
-                " (maximum 30).");
+            LoggerInstance.Msg("[Diagnostics] Relevant blur runtime types: " + logged +
+                " | Assemblies containing matches: " + matchingAssemblies + ".");
         }
 
         private void LogComponentFields(Component component, int maxBaseTypes)
